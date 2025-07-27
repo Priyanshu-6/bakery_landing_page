@@ -1,13 +1,21 @@
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 from typing import List, Optional
-from models import Product, Review, Order, BusinessData, BusinessInfo, BusinessHours, DeliveryOption
 import asyncio
+from dotenv import load_dotenv
+from pathlib import Path
+
+# Load environment variables
+ROOT_DIR = Path(__file__).parent
+load_dotenv(ROOT_DIR / '.env')
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
+
+# Import models after environment is loaded
+from models import Product, Review, Order, BusinessData, BusinessInfo, BusinessHours, DeliveryOption
 
 class DatabaseManager:
     def __init__(self):
