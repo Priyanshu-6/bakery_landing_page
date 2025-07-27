@@ -1,14 +1,55 @@
-import React, { useState } from 'react';
-import { bakingService } from '../data/mock';
+import React, { useState, useEffect } from 'react';
+import { bakingApi } from '../services/api';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';
-import { Star, Phone, Mail, MapPin, Clock, Store, Truck, Zap, ShoppingCart, Plus, Minus } from 'lucide-react';
+import { useToast } from '../hooks/use-toast';
+import { Star, Phone, Mail, MapPin, Clock, Store, Truck, Zap, ShoppingCart, Plus, Minus, Loader2 } from 'lucide-react';
 
 const BakingLandingPage = () => {
   const [cart, setCart] = useState([]);
   const [selectedDelivery, setSelectedDelivery] = useState('pickup');
+  const [loading, setLoading] = useState(true);
+  const [products, setProducts] = useState([]);
+  const [businessInfo, setBusinessInfo] = useState(null);
+  const [deliveryOptions, setDeliveryOptions] = useState([]);
+  const [reviews, setReviews] = useState([]);
+  const [businessHours, setBusinessHours] = useState(null);
+  const [orderLoading, setOrderLoading] = useState(false);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    loadInitialData();
+  }, []);
+
+  const loadInitialData = async () => {
+    try {
+      setLoading(true);
+      const [productsData, businessData, deliveryData, reviewsData, hoursData] = await Promise.all([
+        bakingApi.getProducts(),
+        bakingApi.getBusinessInfo(),
+        bakingApi.getDeliveryOptions(),
+        bakingApi.getReviews(4),
+        bakingApi.getBusinessHours()
+      ]);
+
+      setProducts(productsData);
+      setBusinessInfo(businessData);
+      setDeliveryOptions(deliveryData);
+      setReviews(reviewsData);
+      setBusinessHours(hoursData);
+    } catch (error) {
+      console.error('Error loading data:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load bakery data. Please refresh the page.",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const addToCart = (item, quantity = 1) => {
     setCart(prevCart => {
@@ -21,6 +62,11 @@ const BakingLandingPage = () => {
         );
       }
       return [...prevCart, { ...item, quantity }];
+    });
+    
+    toast({
+      title: "Added to cart",
+      description: `${item.name} has been added to your cart.`,
     });
   };
 
@@ -38,7 +84,7 @@ const BakingLandingPage = () => {
 
   const getCartTotal = () => {
     const itemsTotal = cart.reduce((total, item) => total + (item.price * item.quantity), 0);
-    const deliveryFee = bakingService.delivery_options.find(opt => opt.id === selectedDelivery)?.price || 0;
+    const deliveryFee = deliveryOptions.find(opt => opt.id === selectedDelivery)?.price || 0;
     return itemsTotal + deliveryFee;
   };
 
@@ -55,6 +101,71 @@ const BakingLandingPage = () => {
     }
   };
 
+  const handlePlaceOrder = async () => {
+    if (cart.length === 0) {
+      toast({
+        title: "Cart is empty",
+        description: "Please add items to your cart before placing an order.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      setOrderLoading(true);
+      
+      const orderData = {
+        customer_info: {
+          name: "Demo Customer",
+          email: "demo@example.com",
+          phone: "(555) 123-4567",
+          address: selectedDelivery !== 'pickup' ? "123 Demo Street, Demo City, DC 12345" : null
+        },
+        items: cart.map(item => ({
+          product_id: item.id,
+          quantity: item.quantity,
+          price: item.price
+        })),
+        delivery_option: selectedDelivery,
+        delivery_fee: deliveryOptions.find(opt => opt.id === selectedDelivery)?.price || 0,
+        subtotal: cart.reduce((total, item) => total + (item.price * item.quantity), 0),
+        total: getCartTotal(),
+        special_instructions: "Demo order from website"
+      };
+
+      const result = await bakingApi.createOrder(orderData);
+      
+      toast({
+        title: "Order placed successfully!",
+        description: `Your order ID is: ${result.order_id}`,
+      });
+      
+      // Clear cart after successful order
+      setCart([]);
+      
+    } catch (error) {
+      console.error('Error placing order:', error);
+      toast({
+        title: "Order failed",
+        description: error.message || "Failed to place order. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setOrderLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-warm-cream flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-warm-accent" />
+          <p className="text-warm-text">Loading bakery...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-warm-cream">
       {/* Header */}
@@ -62,7 +173,7 @@ const BakingLandingPage = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-4">
-              <h1 className="text-2xl font-bold text-warm-text">{bakingService.business.name}</h1>
+              <h1 className="text-2xl font-bold text-warm-text">{businessInfo?.name}</h1>
             </div>
             <div className="flex items-center space-x-4">
               <div className="relative">
@@ -74,7 +185,7 @@ const BakingLandingPage = () => {
               <div className="hidden md:flex items-center space-x-4 text-sm text-warm-text-subtle">
                 <div className="flex items-center space-x-1">
                   <Phone className="w-4 h-4" />
-                  <span>{bakingService.business.phone}</span>
+                  <span>{businessInfo?.phone}</span>
                 </div>
               </div>
             </div>
@@ -86,10 +197,10 @@ const BakingLandingPage = () => {
       <section className="bg-gradient-to-br from-warm-cream to-white py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-5xl font-bold text-warm-text mb-6">
-            {bakingService.business.tagline}
+            {businessInfo?.tagline}
           </h2>
           <p className="text-xl text-warm-text-subtle max-w-3xl mx-auto mb-10">
-            {bakingService.business.description}
+            {businessInfo?.description}
           </p>
           <div className="flex justify-center space-x-4">
             <Button size="lg" className="bg-warm-accent hover:bg-warm-accent/90 text-white px-8 py-3">
@@ -111,8 +222,8 @@ const BakingLandingPage = () => {
           </div>
           
           <div className="grid md:grid-cols-3 gap-8">
-            {bakingService.signature_items.map((item) => (
-              <Card key={item.id} className="overflow-hidden hover:shadow-lg transition-shadow">
+            {products.map((item) => (
+              <Card key={item.id} className="overflow-hidden hover:shadow-lg transition-shadow hover-lift">
                 <div className="aspect-w-16 aspect-h-12">
                   <img 
                     src={item.image} 
@@ -143,7 +254,7 @@ const BakingLandingPage = () => {
                   </div>
                   <Button 
                     onClick={() => addToCart(item)}
-                    className="w-full bg-warm-accent hover:bg-warm-accent/90 text-white"
+                    className="w-full bg-warm-accent hover:bg-warm-accent/90 text-white hover-glow"
                   >
                     <Plus className="w-4 h-4 mr-2" />
                     Add to Cart
@@ -159,7 +270,7 @@ const BakingLandingPage = () => {
       {cart.length > 0 && (
         <section className="py-8 bg-warm-cream/50">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-            <Card>
+            <Card className="hover-lift">
               <CardHeader>
                 <CardTitle className="text-xl text-warm-text">Your Order</CardTitle>
               </CardHeader>
@@ -209,10 +320,10 @@ const BakingLandingPage = () => {
           </div>
           
           <div className="grid md:grid-cols-3 gap-6">
-            {bakingService.delivery_options.map((option) => (
+            {deliveryOptions.map((option) => (
               <Card 
                 key={option.id} 
-                className={`cursor-pointer transition-all hover:shadow-md ${
+                className={`cursor-pointer transition-all hover:shadow-md hover-lift ${
                   selectedDelivery === option.id ? 'ring-2 ring-warm-accent bg-warm-accent/5' : ''
                 }`}
                 onClick={() => setSelectedDelivery(option.id)}
@@ -242,7 +353,7 @@ const BakingLandingPage = () => {
       {cart.length > 0 && (
         <section className="py-8 bg-warm-cream/50">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-            <Card>
+            <Card className="hover-lift">
               <CardContent className="pt-6">
                 <div className="flex justify-between items-center text-lg">
                   <span className="text-warm-text">Subtotal:</span>
@@ -251,7 +362,7 @@ const BakingLandingPage = () => {
                 <div className="flex justify-between items-center text-lg mt-2">
                   <span className="text-warm-text">Delivery:</span>
                   <span className="text-warm-text">
-                    ${bakingService.delivery_options.find(opt => opt.id === selectedDelivery)?.price.toFixed(2) || '0.00'}
+                    ${deliveryOptions.find(opt => opt.id === selectedDelivery)?.price?.toFixed(2) || '0.00'}
                   </span>
                 </div>
                 <Separator className="my-4" />
@@ -259,8 +370,20 @@ const BakingLandingPage = () => {
                   <span className="text-warm-text">Total:</span>
                   <span className="text-warm-text">${getCartTotal().toFixed(2)}</span>
                 </div>
-                <Button className="w-full mt-6 bg-warm-accent hover:bg-warm-accent/90 text-white" size="lg">
-                  Place Order
+                <Button 
+                  className="w-full mt-6 bg-warm-accent hover:bg-warm-accent/90 text-white hover-glow" 
+                  size="lg"
+                  onClick={handlePlaceOrder}
+                  disabled={orderLoading}
+                >
+                  {orderLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Placing Order...
+                    </>
+                  ) : (
+                    'Place Order'
+                  )}
                 </Button>
               </CardContent>
             </Card>
@@ -277,8 +400,8 @@ const BakingLandingPage = () => {
           </div>
           
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {bakingService.customer_reviews.map((review) => (
-              <Card key={review.id} className="h-full">
+            {reviews.map((review) => (
+              <Card key={review.id} className="h-full hover-lift">
                 <CardHeader>
                   <div className="flex items-center justify-between mb-2">
                     <CardTitle className="text-lg text-warm-text">{review.name}</CardTitle>
@@ -295,7 +418,7 @@ const BakingLandingPage = () => {
                 </CardHeader>
                 <CardContent>
                   <p className="text-warm-text-subtle text-sm leading-relaxed">{review.comment}</p>
-                  <p className="text-xs text-warm-text-subtle mt-3">{new Date(review.date).toLocaleDateString()}</p>
+                  <p className="text-xs text-warm-text-subtle mt-3">{new Date(review.created_at).toLocaleDateString()}</p>
                 </CardContent>
               </Card>
             ))}
@@ -308,44 +431,46 @@ const BakingLandingPage = () => {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid md:grid-cols-3 gap-8">
             <div>
-              <h4 className="text-xl font-bold mb-4">{bakingService.business.name}</h4>
-              <p className="text-gray-300 mb-4">{bakingService.business.description}</p>
+              <h4 className="text-xl font-bold mb-4">{businessInfo?.name}</h4>
+              <p className="text-gray-300 mb-4">{businessInfo?.description}</p>
               <div className="space-y-2 text-sm">
                 <div className="flex items-center space-x-2">
                   <MapPin className="w-4 h-4" />
-                  <span>{bakingService.business.address}</span>
+                  <span>{businessInfo?.address}</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <Phone className="w-4 h-4" />
-                  <span>{bakingService.business.phone}</span>
+                  <span>{businessInfo?.phone}</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <Mail className="w-4 h-4" />
-                  <span>{bakingService.business.email}</span>
+                  <span>{businessInfo?.email}</span>
                 </div>
               </div>
             </div>
             
             <div>
               <h4 className="text-lg font-semibold mb-4">Business Hours</h4>
-              <div className="space-y-1 text-sm text-gray-300">
-                <div className="flex justify-between">
-                  <span>Monday - Thursday</span>
-                  <span>7:00 AM - 7:00 PM</span>
+              {businessHours && (
+                <div className="space-y-1 text-sm text-gray-300">
+                  <div className="flex justify-between">
+                    <span>Monday - Thursday</span>
+                    <span>{businessHours.monday}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Friday</span>
+                    <span>{businessHours.friday}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Saturday</span>
+                    <span>{businessHours.saturday}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Sunday</span>
+                    <span>{businessHours.sunday}</span>
+                  </div>
                 </div>
-                <div className="flex justify-between">
-                  <span>Friday</span>
-                  <span>7:00 AM - 8:00 PM</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Saturday</span>
-                  <span>8:00 AM - 8:00 PM</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Sunday</span>
-                  <span>8:00 AM - 6:00 PM</span>
-                </div>
-              </div>
+              )}
             </div>
             
             <div>
@@ -361,7 +486,7 @@ const BakingLandingPage = () => {
           
           <Separator className="my-8 bg-gray-600" />
           <div className="text-center text-sm text-gray-300">
-            <p>&copy; 2024 {bakingService.business.name}. All rights reserved. Made with ❤️ for our community.</p>
+            <p>&copy; 2024 {businessInfo?.name}. All rights reserved. Made with ❤️ for our community.</p>
           </div>
         </div>
       </footer>
